@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+dist/
 
 # Test binary, built with `go test -c`
 *.test
@@ -25,3 +26,4 @@ examples/
 
 # VScode debugger config
 .vscode/launch.json
+
