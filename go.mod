@@ -1,6 +1,6 @@
 module gitlab.global.ingenico.com/sdescamps/commvault-go-exporter
 
-go 1.20
+go 1.19
 
 require github.com/spf13/cobra v1.7.0
 
