@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+
+# Example dir
+examples/
+
+# VScode debugger config
+.vscode/launch.json
