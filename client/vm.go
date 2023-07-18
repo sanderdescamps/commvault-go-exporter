@@ -57,9 +57,12 @@ func (c *VmService) GetVmStatus(status VmStatus) (*[]VmStatusInfo, error) {
 
 func (c *VmService) GetVmStatusDebug(status VmStatus) (*[]VmStatusInfo, error) {
 
-	c.GetVmStatus(status)
+	_, err := c.GetVmStatus(status)
+	if err != nil {
+		return nil, err
+	}
 	resp := GetVmResp{}
-	err := json.Unmarshal([]byte(fake_vmstatus_response()), &resp)
+	err = json.Unmarshal([]byte(fake_vmstatus_response()), &resp)
 	if err != nil {
 		return nil, err
 	}

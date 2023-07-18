@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -48,7 +49,14 @@ var runCmd = &cobra.Command{
 		http.Handle("/metrics", promhttp.Handler())
 		fmt.Printf("Starting server on 0.0.0.0:%d....\n", tcpport)
 
-		http.ListenAndServe(fmt.Sprintf(":%d", tcpport), nil)
+		server := &http.Server{
+			Addr:              fmt.Sprintf(":%d", tcpport),
+			ReadHeaderTimeout: 3 * time.Second,
+		}
+		err = server.ListenAndServe()
+		if err != nil {
+			fmt.Printf("[error] %+v", err)
+		}
 	},
 }
 
@@ -152,7 +160,9 @@ func main() {
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	rootCmd.MarkFlagsMutuallyExclusive("user", "token")
 	rootCmd.MarkFlagsMutuallyExclusive("password", "token")
+	// #nosec G104
 	rootCmd.MarkFlagRequired("endpoint")
 	rootCmd.AddCommand(runCmd, testCmd, test2Cmd, test3Cmd)
+	// #nosec G104
 	rootCmd.Execute()
 }

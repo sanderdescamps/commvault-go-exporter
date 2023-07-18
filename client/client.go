@@ -49,6 +49,7 @@ func NewClient(target string, username string, password string, insecure bool) (
 	}
 
 	// cookieJar, _ := cookiejar.New(nil)
+	// #nosec G402
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
 	}
@@ -59,7 +60,10 @@ func NewClient(target string, username string, password string, insecure bool) (
 	c.Bkp = &BkpService{client: c}
 	c.Database = &DatabaseService{client: c}
 	c.tokenAutoRenewPeriod = TOKEN_RENEW_PERIOD * time.Minute
-	c.RenewToken()
+	err := c.RenewToken()
+	if err != nil {
+		return nil, err
+	}
 
 	return c, nil
 }
@@ -119,10 +123,11 @@ func (c *CommvaultClient) Do(req *http.Request, v interface{}) (*http.Response, 
 		fmt.Println("Do request failed")
 		return nil, err
 	}
-	defer resp.Body.Close()
-	// if err := validateResponse(resp); err != nil {
-	// 	return resp, err
-	// }
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("[error] %s", err)
+		}
+	}()
 	err = readJsonResponse(resp, v)
 
 	return resp, err
@@ -134,7 +139,11 @@ func (c *CommvaultClient) DoXml(req *http.Request, v interface{}) (*http.Respons
 		fmt.Println("Do request failed")
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			fmt.Printf("[error] %s", err)
+		}
+	}()
 
 	// if err := validateResponse(resp); err != nil {
 	// 	return resp, err
@@ -161,7 +170,11 @@ func (c *CommvaultClient) _tokenAutoRenew(ctx context.Context) {
 	for {
 		select {
 		case <-c.tokenAutoRenewTicker.C:
-			c.RenewToken()
+			err := c.RenewToken()
+			if err != nil {
+				fmt.Printf("[error]: failed to renew token\n%+v\n", err)
+				continue
+			}
 			fmt.Printf("[info] Renew token\n")
 		case <-ctx.Done():
 			return
@@ -174,7 +187,7 @@ func (c *CommvaultClient) StopTokenAutoRenew(ctx context.Context) {
 }
 
 func GetCommvaultToken(apiEndpoint string, username string, password string, insecure bool) (string, error) {
-
+	// #nosec G402
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
@@ -203,7 +216,12 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+
+	defer func() {
+		if err := res.Body.Close(); err != nil {
+			fmt.Printf("[error] %s", err)
+		}
+	}()
 
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
 		resp, err := ioutil.ReadAll(res.Body)
