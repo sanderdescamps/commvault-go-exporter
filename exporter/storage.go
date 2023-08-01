@@ -172,6 +172,10 @@ func (collector *StorageDiskCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *StorageDiskCollector) Collect(ch chan<- prometheus.Metric) {
+	if !collector.commvaultClient.GetActiveStatus() {
+		return
+	}
+
 	storageDetails, err := collector.commvaultClient.Storage.GetLibrariesDetails()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[error] %v", err)

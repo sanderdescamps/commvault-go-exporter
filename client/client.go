@@ -10,26 +10,33 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	TOKEN_EXPIRE_PERIOD = 30
 	TOKEN_RENEW_PERIOD  = 15
+	ACTIVE_CHECK_PERIOD = 30
 )
 
 type CommvaultClient struct {
-	target               string
-	token                string
-	username             string
-	password             string
-	insecure             bool
-	httpclient           *http.Client
-	tokenAutoRenewPeriod time.Duration
-	tokenAutoRenewTicker *time.Ticker
+	target                  string
+	token                   string
+	username                string
+	password                string
+	insecure                bool
+	httpclient              *http.Client
+	tokenAutoRenewPeriod    time.Duration
+	tokenAutoRenewTicker    *time.Ticker
+	isActive                bool
+	isActiveLock            sync.Mutex
+	activeStatusCheckPeriod time.Duration
+	activeStatusCheckTicker *time.Ticker
 
 	Vm       *VmService
 	Storage  *StorageService
@@ -64,7 +71,6 @@ func NewClient(target string, username string, password string, insecure bool) (
 	if err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
@@ -152,20 +158,63 @@ func (c *CommvaultClient) DoXml(req *http.Request, v interface{}) (*http.Respons
 	return resp, err
 }
 
-func (c *CommvaultClient) RenewToken() error {
-	token, err := GetCommvaultToken(c.target, c.username, c.password, c.insecure)
-	if err != nil {
-		return err
+func readJsonResponse(r *http.Response, v interface{}) error {
+	if v == nil {
+		return fmt.Errorf("nil interface provided to decodeResponse")
 	}
-	c.token = token
+
+	bodyBytes, _ := io.ReadAll(r.Body)
+	bodyString := string(bodyBytes)
+
+	if c := r.StatusCode; c < 200 || c > 299 {
+		return fmt.Errorf("[error] %s", bodyString)
+	}
+
+	err := json.Unmarshal(bodyBytes, &v)
+	if err != nil {
+		return fmt.Errorf("failed to parse body to %T\n%v", v, err)
+	}
+	return nil
+}
+
+func readXmlResponse(r *http.Response, v interface{}) error {
+	if v == nil {
+		return fmt.Errorf("nil interface provided to decodeResponse")
+	}
+
+	bodyBytes, _ := ioutil.ReadAll(r.Body)
+	bodyString := string(bodyBytes)
+
+	if c := r.StatusCode; c < 200 || c > 299 {
+		return fmt.Errorf("[error] %s", bodyString)
+	}
+
+	fmt.Printf("== xml response ==\n%s", bodyString)
+
+	err := xml.Unmarshal([]byte(bodyString), &v)
+	return err
+}
+
+func (c *CommvaultClient) RenewToken() error {
+	if c.GetActiveStatus() {
+		token, err := GetCommvaultToken(c.target, c.username, c.password, c.insecure)
+		if err != nil {
+			return err
+		}
+		c.token = token
+	}
 	return nil
 }
 
 func (c *CommvaultClient) StartTokenAutoRenew(ctx context.Context) {
-	go c._tokenAutoRenew(ctx)
+	go c.renewTokenExecutor(ctx)
 }
 
-func (c *CommvaultClient) _tokenAutoRenew(ctx context.Context) {
+func (c *CommvaultClient) StopTokenAutoRenew(ctx context.Context) {
+	c.tokenAutoRenewTicker.Stop()
+}
+
+func (c *CommvaultClient) renewTokenExecutor(ctx context.Context) {
 	c.tokenAutoRenewTicker = time.NewTicker(c.tokenAutoRenewPeriod)
 	for {
 		select {
@@ -180,10 +229,6 @@ func (c *CommvaultClient) _tokenAutoRenew(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (c *CommvaultClient) StopTokenAutoRenew(ctx context.Context) {
-	c.tokenAutoRenewTicker.Stop()
 }
 
 func GetCommvaultToken(apiEndpoint string, username string, password string, insecure bool) (string, error) {
@@ -250,45 +295,59 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 		}
 		return "", fmt.Errorf(string(resp))
 	}
-
 }
 
-func readJsonResponse(r *http.Response, v interface{}) error {
-	if v == nil {
-		return fmt.Errorf("nil interface provided to decodeResponse")
+func (c *CommvaultClient) GetActiveStatus() bool {
+	c.isActiveLock.Lock()
+	defer c.isActiveLock.Unlock()
+	return c.isActive
+}
+
+func (c *CommvaultClient) StartActiveCheck(ctx context.Context) {
+	go c.checkActiveExecutor(ctx)
+}
+
+func (c *CommvaultClient) StopActiveCheck(ctx context.Context) {
+	c.activeStatusCheckTicker.Stop()
+}
+
+func (c *CommvaultClient) checkActiveExecutor(ctx context.Context) {
+	c.activeStatusCheckTicker = time.NewTicker(c.activeStatusCheckPeriod)
+	for {
+		select {
+		case <-c.activeStatusCheckTicker.C:
+			err := c.CheckActiveStatus()
+			if err != nil {
+				fmt.Printf("[error]: failed to check API endpoint status\n%+v\n", err)
+				continue
+			}
+			fmt.Printf("[info] check API endpoint status\n")
+		case <-ctx.Done():
+			return
+		}
 	}
+}
 
-	bodyBytes, _ := io.ReadAll(r.Body)
-	bodyString := string(bodyBytes)
-
-	if c := r.StatusCode; c < 200 || c > 299 {
-		return fmt.Errorf("[error] %s", bodyString)
-	}
-
-	// fmt.Printf("== json response ==\n%s\n==\n", bodyString)
-	//fmt.Printf("    == json response body ==\n    %s\n    ==\n", strings.Replace(strings.Replace(bodyString, "\r", "", -1), "\n", "", -1))
-
-	err := json.Unmarshal(bodyBytes, &v)
+func (c *CommvaultClient) CheckActiveStatus() error {
+	baseUrl, err := url.Parse(c.target)
 	if err != nil {
-		return fmt.Errorf("failed to parse body to %T\n%v", v, err)
+		return err
 	}
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", baseUrl.Hostname(), baseUrl.Port()))
+	if err != nil {
+		c.isActiveLock.Lock()
+		defer c.isActiveLock.Unlock()
+		c.isActive = false
+	} else {
+		c.isActiveLock.Lock()
+		defer c.isActiveLock.Unlock()
+		c.isActive = true
+	}
+
+	defer func() {
+		err := conn.Close()
+		fmt.Printf("failed to close connection: %s\n", err)
+	}()
+
 	return nil
-}
-
-func readXmlResponse(r *http.Response, v interface{}) error {
-	if v == nil {
-		return fmt.Errorf("nil interface provided to decodeResponse")
-	}
-
-	bodyBytes, _ := ioutil.ReadAll(r.Body)
-	bodyString := string(bodyBytes)
-
-	if c := r.StatusCode; c < 200 || c > 299 {
-		return fmt.Errorf("[error] %s", bodyString)
-	}
-
-	fmt.Printf("== xml response ==\n%s", bodyString)
-
-	err := xml.Unmarshal([]byte(bodyString), &v)
-	return err
 }

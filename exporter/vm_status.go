@@ -63,6 +63,9 @@ func (collector *VmStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *VmStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	if !collector.commvaultClient.GetActiveStatus() {
+		return
+	}
 	vmStatus, err := collector.commvaultClient.Vm.GetVmStatus(client.VmStatus_All)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[error] %v", err)

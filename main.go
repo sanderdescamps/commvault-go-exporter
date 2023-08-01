@@ -44,7 +44,8 @@ var runCmd = &cobra.Command{
 		storageCollector := exporter.NewStorageDiskCollector(client)
 		fsBackupCollector := exporter.NewFsBackupStatusCollector(client)
 		dbStatusCollector := exporter.NewDbStatusCollector(client)
-		prometheus.MustRegister(vmStatusCollector, storageCollector, fsBackupCollector, dbStatusCollector)
+		statusCollector := exporter.NewCommvaultStatusCollector(client)
+		prometheus.MustRegister(statusCollector, vmStatusCollector, storageCollector, fsBackupCollector, dbStatusCollector)
 
 		http.Handle("/metrics", promhttp.Handler())
 		fmt.Printf("Starting server on 0.0.0.0:%d....\n", tcpport)

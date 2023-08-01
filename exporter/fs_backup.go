@@ -29,6 +29,9 @@ func (collector *FsBackupStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *FsBackupStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	if !collector.commvaultClient.GetActiveStatus() {
+		return
+	}
 	bclients, err := collector.commvaultClient.Bkp.GetBkpClients()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[ERROR] Failed to get the clients\n%s\n", err)

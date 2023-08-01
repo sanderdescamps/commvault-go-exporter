@@ -58,6 +58,10 @@ func (collector *DbStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *DbStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	if !collector.commvaultClient.GetActiveStatus() {
+		return
+	}
+
 	dbInstance, err := collector.commvaultClient.Database.GetDatabaseInstances()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[error] %v", err)
