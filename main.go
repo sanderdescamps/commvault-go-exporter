@@ -67,7 +67,6 @@ func main() {
 	rootCmd.PersistentFlags().StringP("endpoint", "e", "", "Commvault endpoint")
 	rootCmd.PersistentFlags().StringP("user", "u", "", "Username to connect to Commvault")
 	rootCmd.PersistentFlags().StringP("password", "p", "", "Password to connect to Commvault")
-	rootCmd.PersistentFlags().StringP("token", "t", "", "Token to connect to Commvault")
 	rootCmd.PersistentFlags().Bool("insecure", false, "Skip SSL certificate verification")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	rootCmd.MarkFlagsMutuallyExclusive("user", "token")

@@ -52,7 +52,7 @@ func NewClient(target string, username string, password string, insecure bool) (
 	}
 
 	if username == "" || password == "" {
-		return nil, fmt.Errorf("[error] Must specify API token or both username and password")
+		return nil, fmt.Errorf("[error] Must specify username and password")
 	}
 
 	// cookieJar, _ := cookiejar.New(nil)
