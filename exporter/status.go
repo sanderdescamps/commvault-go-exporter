@@ -25,7 +25,7 @@ func (collector *StatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *StatusCollector) Collect(ch chan<- prometheus.Metric) {
-	if collector.commvaultClient.GetActiveStatus() {
+	if collector.commvaultClient.Status != nil && collector.commvaultClient.Status.GetIsActive() {
 		ch <- prometheus.MustNewConstMetric(collector.commvaultStatus, prometheus.GaugeValue, 1)
 	} else {
 		ch <- prometheus.MustNewConstMetric(collector.commvaultStatus, prometheus.GaugeValue, 0)

@@ -36,9 +36,19 @@ var runCmd = &cobra.Command{
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Starting token auto renew...\n")
+		if client.Status.GetIsActive() {
+			fmt.Printf("[info] Commvault endpoint status: Active\n")
+		} else {
+			fmt.Printf("[info] Commvault endpoint status: Standby\n")
+		}
+
+		fmt.Printf("[info] Starting automatic Commvault status check...\n")
+		client.Status.Start(cmd.Context())
+		fmt.Printf("[info] Commvault status check started\n")
+
+		fmt.Printf("[info] Starting token auto-renew...\n")
 		client.StartTokenAutoRenew(cmd.Context())
-		fmt.Printf("Token autorenew enabled\n")
+		fmt.Printf("[info] Token auto-renew enabled\n")
 
 		vmStatusCollector := exporter.NewVmStatusCollector(client)
 		storageCollector := exporter.NewStorageDiskCollector(client)
@@ -48,7 +58,7 @@ var runCmd = &cobra.Command{
 		prometheus.MustRegister(statusCollector, vmStatusCollector, storageCollector, fsBackupCollector, dbStatusCollector)
 
 		http.Handle("/metrics", promhttp.Handler())
-		fmt.Printf("Starting server on 0.0.0.0:%d....\n", tcpport)
+		fmt.Printf("[info] Starting server on 0.0.0.0:%d....\n", tcpport)
 
 		server := &http.Server{
 			Addr:              fmt.Sprintf(":%d", tcpport),
@@ -69,10 +79,10 @@ func main() {
 	rootCmd.PersistentFlags().StringP("password", "p", "", "Password to connect to Commvault")
 	rootCmd.PersistentFlags().Bool("insecure", false, "Skip SSL certificate verification")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
-	rootCmd.MarkFlagsMutuallyExclusive("user", "token")
-	rootCmd.MarkFlagsMutuallyExclusive("password", "token")
 	// #nosec G104
 	rootCmd.MarkFlagRequired("endpoint")
+	rootCmd.MarkFlagRequired("user")
+	rootCmd.MarkFlagRequired("password")
 	rootCmd.AddCommand(runCmd)
 	// #nosec G104
 	rootCmd.Execute()

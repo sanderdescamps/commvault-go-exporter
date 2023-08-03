@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,29 +18,29 @@ import (
 )
 
 const (
-	TOKEN_EXPIRE_PERIOD = 30
-	TOKEN_RENEW_PERIOD  = 15
-	ACTIVE_CHECK_PERIOD = 30
+	TOKEN_EXPIRE_PERIOD     = 30
+	TOKEN_RENEW_PERIOD      = 15
+	ACTIVE_CHECK_PERIOD_SEC = 10
 )
 
 type CommvaultClient struct {
-	target                  string
-	token                   string
-	username                string
-	password                string
-	insecure                bool
-	httpclient              *http.Client
-	tokenAutoRenewPeriod    time.Duration
-	tokenAutoRenewTicker    *time.Ticker
-	isActive                bool
-	isActiveLock            sync.Mutex
-	activeStatusCheckPeriod time.Duration
-	activeStatusCheckTicker *time.Ticker
+	target               string
+	token                string
+	username             string
+	password             string
+	insecure             bool
+	httpclient           *http.Client
+	tokenLock            sync.Mutex
+	tokenAutoRenewPeriod time.Duration
+	tokenAutoRenewTicker *time.Ticker
+	tokenManualTrigger   chan bool
+	tokenFlushTrigger    chan bool
 
 	Vm       *VmService
 	Storage  *StorageService
 	Bkp      *BkpService
 	Database *DatabaseService
+	Status   *ClientStatusService
 }
 
 func NewClient(target string, username string, password string, insecure bool) (*CommvaultClient, error) {
@@ -58,37 +57,54 @@ func NewClient(target string, username string, password string, insecure bool) (
 	// cookieJar, _ := cookiejar.New(nil)
 	// #nosec G402
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: insecure},
+		TLSHandshakeTimeout: 3 * time.Second,
 	}
 	c := &CommvaultClient{target: target, username: username, password: password, insecure: insecure}
-	c.httpclient = &http.Client{Transport: tr}
+	c.tokenLock = sync.Mutex{}
+	c.tokenManualTrigger = make(chan bool)
+	c.tokenFlushTrigger = make(chan bool)
+	c.httpclient = &http.Client{
+		Transport: tr,
+	}
 	c.Vm = &VmService{client: c}
 	c.Storage = &StorageService{client: c}
 	c.Bkp = &BkpService{client: c}
 	c.Database = &DatabaseService{client: c}
+	c.Status = NewClientStatusService(c, ACTIVE_CHECK_PERIOD_SEC*time.Second)
 	c.tokenAutoRenewPeriod = TOKEN_RENEW_PERIOD * time.Minute
-	err := c.RenewToken()
+
+	err := c.Status.CheckStatus()
 	if err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-func (c *CommvaultClient) NewRequest(method string, path string, params map[string]any, data *interface{}) (*http.Request, error) {
-
+func (c *CommvaultClient) Url(path *string, params *map[string]any) (*url.URL, error) {
 	baseUrl, err := url.Parse(c.target)
 	if err != nil {
 		return nil, err
 	}
-	baseUrl.Path = path
+	if path != nil {
+		baseUrl.Path = *path
+	}
 	if params != nil {
 		ps := url.Values{}
-		for k, v := range params {
+		for k, v := range *params {
 			ps.Set(k, fmt.Sprintf("%v", v))
 		}
 		baseUrl.RawQuery = ps.Encode()
 	}
+	return baseUrl, nil
+}
 
+func (c *CommvaultClient) NewRequest(method string, path string, params map[string]any, data *interface{}) (*http.Request, error) {
+
+	baseUrl, err := c.Url(&path, &params)
+	if err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequest(method, baseUrl.String(), nil)
 	if err != nil {
 		return nil, err
@@ -109,7 +125,7 @@ func (c *CommvaultClient) NewRequest(method string, path string, params map[stri
 		req.Header.Add("Content-Type", "application/json")
 	}
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authtoken", c.token)
+	req.Header.Add("Authtoken", c.GetToken())
 
 	return req, err
 }
@@ -196,14 +212,28 @@ func readXmlResponse(r *http.Response, v interface{}) error {
 }
 
 func (c *CommvaultClient) RenewToken() error {
-	if c.GetActiveStatus() {
+	if c.Status != nil && c.Status.GetIsActive() {
 		token, err := GetCommvaultToken(c.target, c.username, c.password, c.insecure)
 		if err != nil {
 			return err
 		}
+		c.tokenLock.Lock()
+		defer c.tokenLock.Unlock()
 		c.token = token
 	}
 	return nil
+}
+
+func (c *CommvaultClient) FlushToken() {
+	c.tokenLock.Lock()
+	defer c.tokenLock.Unlock()
+	c.token = ""
+}
+
+func (c *CommvaultClient) GetToken() string {
+	c.tokenLock.Lock()
+	defer c.tokenLock.Unlock()
+	return c.token
 }
 
 func (c *CommvaultClient) StartTokenAutoRenew(ctx context.Context) {
@@ -219,12 +249,22 @@ func (c *CommvaultClient) renewTokenExecutor(ctx context.Context) {
 	for {
 		select {
 		case <-c.tokenAutoRenewTicker.C:
+			fmt.Printf("[info] Start renew token (auto trigger)\n")
 			err := c.RenewToken()
 			if err != nil {
 				fmt.Printf("[error]: failed to renew token\n%+v\n", err)
 				continue
 			}
-			fmt.Printf("[info] Renew token\n")
+		case <-c.tokenManualTrigger:
+			fmt.Printf("[info] Start renew token (manual trigger)\n")
+			err := c.RenewToken()
+			if err != nil {
+				fmt.Printf("[error]: failed to renew token\n%+v\n", err)
+				continue
+			}
+		case <-c.tokenFlushTrigger:
+			c.FlushToken()
+			fmt.Printf("[info] Flush token\n")
 		case <-ctx.Done():
 			return
 		}
@@ -237,6 +277,7 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecure},
 		},
+		Timeout: 3 * time.Second,
 	}
 	url := fmt.Sprintf("%s/webconsole/api/Login", apiEndpoint)
 
@@ -295,59 +336,4 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 		}
 		return "", fmt.Errorf(string(resp))
 	}
-}
-
-func (c *CommvaultClient) GetActiveStatus() bool {
-	c.isActiveLock.Lock()
-	defer c.isActiveLock.Unlock()
-	return c.isActive
-}
-
-func (c *CommvaultClient) StartActiveCheck(ctx context.Context) {
-	go c.checkActiveExecutor(ctx)
-}
-
-func (c *CommvaultClient) StopActiveCheck(ctx context.Context) {
-	c.activeStatusCheckTicker.Stop()
-}
-
-func (c *CommvaultClient) checkActiveExecutor(ctx context.Context) {
-	c.activeStatusCheckTicker = time.NewTicker(c.activeStatusCheckPeriod)
-	for {
-		select {
-		case <-c.activeStatusCheckTicker.C:
-			err := c.CheckActiveStatus()
-			if err != nil {
-				fmt.Printf("[error]: failed to check API endpoint status\n%+v\n", err)
-				continue
-			}
-			fmt.Printf("[info] check API endpoint status\n")
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (c *CommvaultClient) CheckActiveStatus() error {
-	baseUrl, err := url.Parse(c.target)
-	if err != nil {
-		return err
-	}
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", baseUrl.Hostname(), baseUrl.Port()))
-	if err != nil {
-		c.isActiveLock.Lock()
-		defer c.isActiveLock.Unlock()
-		c.isActive = false
-	} else {
-		c.isActiveLock.Lock()
-		defer c.isActiveLock.Unlock()
-		c.isActive = true
-	}
-
-	defer func() {
-		err := conn.Close()
-		fmt.Printf("failed to close connection: %s\n", err)
-	}()
-
-	return nil
 }
