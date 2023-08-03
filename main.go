@@ -81,7 +81,9 @@ func main() {
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	// #nosec G104
 	rootCmd.MarkFlagRequired("endpoint")
+	// #nosec G104
 	rootCmd.MarkFlagRequired("user")
+	// #nosec G104
 	rootCmd.MarkFlagRequired("password")
 	rootCmd.AddCommand(runCmd)
 	// #nosec G104
