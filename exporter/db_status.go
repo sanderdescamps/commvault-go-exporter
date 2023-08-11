@@ -58,9 +58,14 @@ func (collector *DbStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *DbStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	if collector.commvaultClient.Status != nil && !collector.commvaultClient.Status.GetIsActive() && collector.commvaultClient.GetToken() != "" {
+		return
+	}
+
 	dbInstance, err := collector.commvaultClient.Database.GetDatabaseInstances()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[error] %v", err)
+		return
 	}
 	for _, dbi := range dbInstance {
 		labels := []string{dbi.Instance.ClientName, dbi.Instance.AppName, dbi.Instance.InstanceName, dbi.Instance.EntityInfo.CompanyName}

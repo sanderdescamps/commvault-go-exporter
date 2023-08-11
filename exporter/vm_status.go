@@ -63,9 +63,14 @@ func (collector *VmStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *VmStatusCollector) Collect(ch chan<- prometheus.Metric) {
+	if collector.commvaultClient.Status != nil && !collector.commvaultClient.Status.GetIsActive() && collector.commvaultClient.GetToken() != "" {
+		return
+	}
+
 	vmStatus, err := collector.commvaultClient.Vm.GetVmStatus(client.VmStatus_All)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[error] %v", err)
+		return
 	}
 	for _, vm := range *vmStatus {
 		labels := []string{vm.Name, vm.Plan.PlanName, vm.SubclientName, vm.StrGUID}
