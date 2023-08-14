@@ -14,65 +14,60 @@ import (
 	"gitlab.global.ingenico.com/sdescamps/commvault-go-exporter/exporter"
 )
 
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Print the version number of Hugo",
-	Long:  `All software has versions. This is Hugo's`,
-	Run: func(cmd *cobra.Command, args []string) {
-		tcpport, err := cmd.Flags().GetInt16("port")
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Invalid tcp port\n")
-			os.Exit(1)
-		}
+func rootRun(cmd *cobra.Command, args []string) {
+	tcpport, err := cmd.Flags().GetInt16("port")
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Invalid tcp port\n")
+		os.Exit(1)
+	}
 
-		commvaultTarget, _ := cmd.Flags().GetString("endpoint")
-		username, _ := cmd.Flags().GetString("user")
-		password, _ := cmd.Flags().GetString("password")
-		insecure, _ := cmd.Flags().GetBool("insecure")
+	commvaultTarget, _ := cmd.Flags().GetString("endpoint")
+	username, _ := cmd.Flags().GetString("user")
+	password, _ := cmd.Flags().GetString("password")
+	insecure, _ := cmd.Flags().GetBool("insecure")
 
-		// var client client.CommvaultClient
-		client, err := client.NewClient(commvaultTarget, username, password, insecure)
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", err)
-			os.Exit(1)
-		}
-		if client.Status.GetIsActive() {
-			fmt.Printf("[info] Commvault endpoint status: Active\n")
-		} else {
-			fmt.Printf("[info] Commvault endpoint status: Standby\n")
-		}
+	// var client client.CommvaultClient
+	client, err := client.NewClient(commvaultTarget, username, password, insecure)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", err)
+		os.Exit(1)
+	}
+	if client.Status.GetIsActive() {
+		fmt.Printf("[info] Commvault endpoint status: Active\n")
+	} else {
+		fmt.Printf("[info] Commvault endpoint status: Standby\n")
+	}
 
-		fmt.Printf("[info] Starting automatic Commvault status check...\n")
-		client.Status.Start(cmd.Context())
-		fmt.Printf("[info] Commvault status check started\n")
+	fmt.Printf("[info] Starting automatic Commvault status check...\n")
+	client.Status.Start(cmd.Context())
+	fmt.Printf("[info] Commvault status check started\n")
 
-		fmt.Printf("[info] Starting token auto-renew...\n")
-		client.StartTokenAutoRenew(cmd.Context())
-		fmt.Printf("[info] Token auto-renew enabled\n")
+	fmt.Printf("[info] Starting token auto-renew...\n")
+	client.StartTokenAutoRenew(cmd.Context())
+	fmt.Printf("[info] Token auto-renew enabled\n")
 
-		vmStatusCollector := exporter.NewVmStatusCollector(client)
-		storageCollector := exporter.NewStorageDiskCollector(client)
-		fsBackupCollector := exporter.NewFsBackupStatusCollector(client)
-		dbStatusCollector := exporter.NewDbStatusCollector(client)
-		statusCollector := exporter.NewCommvaultStatusCollector(client)
-		prometheus.MustRegister(statusCollector, vmStatusCollector, storageCollector, fsBackupCollector, dbStatusCollector)
+	vmStatusCollector := exporter.NewVmStatusCollector(client)
+	storageCollector := exporter.NewStorageDiskCollector(client)
+	fsBackupCollector := exporter.NewFsBackupStatusCollector(client)
+	dbStatusCollector := exporter.NewDbStatusCollector(client)
+	statusCollector := exporter.NewCommvaultStatusCollector(client)
+	prometheus.MustRegister(statusCollector, vmStatusCollector, storageCollector, fsBackupCollector, dbStatusCollector)
 
-		http.Handle("/metrics", promhttp.Handler())
-		fmt.Printf("[info] Starting server on 0.0.0.0:%d....\n", tcpport)
+	http.Handle("/metrics", promhttp.Handler())
+	fmt.Printf("[info] Starting server on 0.0.0.0:%d....\n", tcpport)
 
-		server := &http.Server{
-			Addr:              fmt.Sprintf(":%d", tcpport),
-			ReadHeaderTimeout: 3 * time.Second,
-		}
-		err = server.ListenAndServe()
-		if err != nil {
-			fmt.Printf("[error] %+v", err)
-		}
-	},
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", tcpport),
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+	err = server.ListenAndServe()
+	if err != nil {
+		fmt.Printf("[error] %+v", err)
+	}
 }
 
 func main() {
-	var rootCmd = &cobra.Command{Use: "app"}
+	var rootCmd = &cobra.Command{Use: "commvault-go-exporter", Run: rootRun}
 	rootCmd.PersistentFlags().Int16P("port", "l", 2112, "Port the metricserver will listen on")
 	rootCmd.PersistentFlags().StringP("endpoint", "e", "", "Commvault endpoint")
 	rootCmd.PersistentFlags().StringP("user", "u", "", "Username to connect to Commvault")
@@ -85,7 +80,6 @@ func main() {
 	rootCmd.MarkFlagRequired("user")
 	// #nosec G104
 	rootCmd.MarkFlagRequired("password")
-	rootCmd.AddCommand(runCmd)
 	// #nosec G104
 	rootCmd.Execute()
 }
