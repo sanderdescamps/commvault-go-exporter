@@ -29,25 +29,24 @@ func (collector *FsBackupStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *FsBackupStatusCollector) Collect(ch chan<- prometheus.Metric) {
-	if collector.commvaultClient.Status != nil && !collector.commvaultClient.Status.GetIsActive() && collector.commvaultClient.GetToken() != "" {
-		return
-	}
+	if collector.commvaultClient.IsActive() {
 
-	bclients, err := collector.commvaultClient.Bkp.GetBkpClients()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[ERROR] Failed to get the clients\n%s\n", err)
-		return
-	}
-	for _, bc := range bclients {
-		binstances, err := collector.commvaultClient.Bkp.GetBkpInstancesByClientId(uint64(bc.Client.ClientEntity.ClientID))
+		bclients, err := collector.commvaultClient.Bkp.GetBkpClients()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] Failed to get the instances for client (%s,ID=%d) \n%s\n", bc.Client.ClientEntity.ClientName, bc.Client.ClientEntity.ClientID, err)
+			fmt.Fprintf(os.Stderr, "[ERROR] Failed to get the clients\n%s\n", err)
 			return
 		}
-		for _, bi := range binstances {
-			labels := []string{bc.Client.ClientEntity.HostName, bc.Client.ClientEntity.EntityInfo.CompanyName, bc.Client.ClientEntity.ClientName, bi.Instance.AppName, bi.Instance.InstanceName}
-			ch <- prometheus.MustNewConstMetric(collector.applicationSize, prometheus.GaugeValue, float64(bi.ApplicationSize), labels...)
-		}
+		for _, bc := range bclients {
+			binstances, err := collector.commvaultClient.Bkp.GetBkpInstancesByClientId(uint64(bc.Client.ClientEntity.ClientID))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[ERROR] Failed to get the instances for client (%s,ID=%d) \n%s\n", bc.Client.ClientEntity.ClientName, bc.Client.ClientEntity.ClientID, err)
+				return
+			}
+			for _, bi := range binstances {
+				labels := []string{bc.Client.ClientEntity.HostName, bc.Client.ClientEntity.EntityInfo.CompanyName, bc.Client.ClientEntity.ClientName, bi.Instance.AppName, bi.Instance.InstanceName}
+				ch <- prometheus.MustNewConstMetric(collector.applicationSize, prometheus.GaugeValue, float64(bi.ApplicationSize), labels...)
+			}
 
+		}
 	}
 }

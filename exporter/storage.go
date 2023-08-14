@@ -172,93 +172,92 @@ func (collector *StorageDiskCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *StorageDiskCollector) Collect(ch chan<- prometheus.Metric) {
-	if collector.commvaultClient.Status != nil && !collector.commvaultClient.Status.GetIsActive() && collector.commvaultClient.GetToken() != "" {
-		return
-	}
+	if collector.commvaultClient.IsActive() {
 
-	storageDetails, err := collector.commvaultClient.Storage.GetLibrariesDetails()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[error] %v", err)
-		return
-	}
-	for _, sd := range storageDetails {
-		var libTyp string
-		if sd.LibraryType == 1 {
-			libTyp = "tape"
-		} else if sd.LibraryType == 3 && (strings.ToLower(sd.Model) == "disk" || strings.ToLower(sd.Model) == "cloud") {
-			libTyp = strings.ToLower(sd.Model)
-		} else if sd.LibraryType == 4 {
-			libTyp = "stand alone library"
-		} else {
-			libTyp = "unknown"
+		storageDetails, err := collector.commvaultClient.Storage.GetLibrariesDetails()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[error] %v", err)
+			return
 		}
-
-		labels := []string{sd.Library.LibraryName, libTyp, strconv.FormatUint(sd.Library.LibraryID, 10)}
-
-		if libTyp == "tape" {
-			bbil24h, _ := byteStringToFloat64(sd.TapeLibSummary.BytesBackedupInLast24H)
-			ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil24h, labels...)
-			bbil1h, _ := byteStringToFloat64(sd.TapeLibSummary.BytesBackedupInLast1H)
-			ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil1h, labels...)
-			var isOnline float64
-			if strings.ToLower(sd.TapeLibSummary.IsOnline) == "no" {
-				isOnline = -1
-			} else if strings.ToLower(sd.TapeLibSummary.IsOnline) == "ready" {
-				isOnline = 1
+		for _, sd := range storageDetails {
+			var libTyp string
+			if sd.LibraryType == 1 {
+				libTyp = "tape"
+			} else if sd.LibraryType == 3 && (strings.ToLower(sd.Model) == "disk" || strings.ToLower(sd.Model) == "cloud") {
+				libTyp = strings.ToLower(sd.Model)
+			} else if sd.LibraryType == 4 {
+				libTyp = "stand alone library"
 			} else {
-				isOnline = 0
-			}
-			ch <- prometheus.MustNewConstMetric(collector.isOnline, prometheus.GaugeValue, isOnline, labels...)
-
-			ch <- prometheus.MustNewConstMetric(collector.numOfActiveMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfActiveMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfAgedMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAgedMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfAppendableMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAppendableMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfAssignedMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAssignedMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfCleaningMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfCleaningMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfDrives, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfDrives), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfDrivesOffline, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfDrivesOffline), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfFullMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfFullMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfIESlotOccupied, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfIESlotOccupied), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfIESlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfIESlots), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfMedia), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfMediaExporting, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfMediaExporting), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfRegSlotOccupied, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfRegSlotOccupied), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfRegSlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfRegSlots), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfSlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfSlots), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.numOfSpareMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfSpareMedia), labels...)
-
-			lastBackup, err := time.Parse(TIME_LAYOUT, sd.TapeLibSummary.LastBackupTime)
-			if err == nil {
-				ch <- prometheus.MustNewConstMetric(collector.lastBackupTime, prometheus.GaugeValue, float64(lastBackup.Unix()), labels...)
-			}
-			lastRestore, err := time.Parse(TIME_LAYOUT, sd.TapeLibSummary.LastBackupTime)
-			if err == nil {
-				ch <- prometheus.MustNewConstMetric(collector.lastRestoreTime, prometheus.GaugeValue, float64(lastRestore.Unix()), labels...)
+				libTyp = "unknown"
 			}
 
-		} else if libTyp == "cloud" || libTyp == "disk" {
-			bbil24h, _ := byteStringToFloat64(sd.MagLibSummary.BytesBackedupInLast24H)
-			ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil24h, labels...)
-			bbil1h, _ := byteStringToFloat64(sd.MagLibSummary.BytesBackedupInLast24H)
-			ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast1H, prometheus.GaugeValue, bbil1h, labels...)
-			var isOnline float64
-			if strings.ToLower(sd.MagLibSummary.IsOnline) == "no" {
-				isOnline = -1 //is not online
-			} else if strings.ToLower(sd.MagLibSummary.IsOnline) == "ready" {
-				isOnline = 1 //is online
-			} else {
-				isOnline = 0 //unknown status
+			labels := []string{sd.Library.LibraryName, libTyp, strconv.FormatUint(sd.Library.LibraryID, 10)}
+
+			if libTyp == "tape" {
+				bbil24h, _ := byteStringToFloat64(sd.TapeLibSummary.BytesBackedupInLast24H)
+				ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil24h, labels...)
+				bbil1h, _ := byteStringToFloat64(sd.TapeLibSummary.BytesBackedupInLast1H)
+				ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil1h, labels...)
+				var isOnline float64
+				if strings.ToLower(sd.TapeLibSummary.IsOnline) == "no" {
+					isOnline = -1
+				} else if strings.ToLower(sd.TapeLibSummary.IsOnline) == "ready" {
+					isOnline = 1
+				} else {
+					isOnline = 0
+				}
+				ch <- prometheus.MustNewConstMetric(collector.isOnline, prometheus.GaugeValue, isOnline, labels...)
+
+				ch <- prometheus.MustNewConstMetric(collector.numOfActiveMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfActiveMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfAgedMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAgedMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfAppendableMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAppendableMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfAssignedMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfAssignedMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfCleaningMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfCleaningMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfDrives, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfDrives), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfDrivesOffline, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfDrivesOffline), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfFullMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfFullMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfIESlotOccupied, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfIESlotOccupied), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfIESlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfIESlots), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfMedia), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfMediaExporting, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfMediaExporting), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfRegSlotOccupied, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfRegSlotOccupied), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfRegSlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfRegSlots), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfSlots, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfSlots), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.numOfSpareMedia, prometheus.GaugeValue, float64(sd.TapeLibSummary.NumOfSpareMedia), labels...)
+
+				lastBackup, err := time.Parse(TIME_LAYOUT, sd.TapeLibSummary.LastBackupTime)
+				if err == nil {
+					ch <- prometheus.MustNewConstMetric(collector.lastBackupTime, prometheus.GaugeValue, float64(lastBackup.Unix()), labels...)
+				}
+				lastRestore, err := time.Parse(TIME_LAYOUT, sd.TapeLibSummary.LastBackupTime)
+				if err == nil {
+					ch <- prometheus.MustNewConstMetric(collector.lastRestoreTime, prometheus.GaugeValue, float64(lastRestore.Unix()), labels...)
+				}
+
+			} else if libTyp == "cloud" || libTyp == "disk" {
+				bbil24h, _ := byteStringToFloat64(sd.MagLibSummary.BytesBackedupInLast24H)
+				ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast24H, prometheus.GaugeValue, bbil24h, labels...)
+				bbil1h, _ := byteStringToFloat64(sd.MagLibSummary.BytesBackedupInLast24H)
+				ch <- prometheus.MustNewConstMetric(collector.bytesBackedupInLast1H, prometheus.GaugeValue, bbil1h, labels...)
+				var isOnline float64
+				if strings.ToLower(sd.MagLibSummary.IsOnline) == "no" {
+					isOnline = -1 //is not online
+				} else if strings.ToLower(sd.MagLibSummary.IsOnline) == "ready" {
+					isOnline = 1 //is online
+				} else {
+					isOnline = 0 //unknown status
+				}
+				ch <- prometheus.MustNewConstMetric(collector.isOnline, prometheus.GaugeValue, isOnline, labels...)
+				onlineMP, totalMP := parseMountPaths(sd.MagLibSummary.OnlineMountPaths)
+				ch <- prometheus.MustNewConstMetric(collector.onlineMountPaths, prometheus.GaugeValue, float64(onlineMP), labels...)
+				ch <- prometheus.MustNewConstMetric(collector.totalNumOfMountPath, prometheus.GaugeValue, float64(totalMP), labels...)
+				totalCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalCapacity)
+				freeCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalFreeSpace)
+				availCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalAvailableSpace)
+				ch <- prometheus.MustNewConstMetric(collector.totalCapacityBytes, prometheus.GaugeValue, totalCap, labels...)
+				ch <- prometheus.MustNewConstMetric(collector.freeCapacityBytes, prometheus.GaugeValue, freeCap, labels...)
+				ch <- prometheus.MustNewConstMetric(collector.availableCapacityBytes, prometheus.GaugeValue, availCap, labels...)
 			}
-			ch <- prometheus.MustNewConstMetric(collector.isOnline, prometheus.GaugeValue, isOnline, labels...)
-			onlineMP, totalMP := parseMountPaths(sd.MagLibSummary.OnlineMountPaths)
-			ch <- prometheus.MustNewConstMetric(collector.onlineMountPaths, prometheus.GaugeValue, float64(onlineMP), labels...)
-			ch <- prometheus.MustNewConstMetric(collector.totalNumOfMountPath, prometheus.GaugeValue, float64(totalMP), labels...)
-			totalCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalCapacity)
-			freeCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalFreeSpace)
-			availCap, _ := byteStringToFloat64(sd.MagLibSummary.TotalAvailableSpace)
-			ch <- prometheus.MustNewConstMetric(collector.totalCapacityBytes, prometheus.GaugeValue, totalCap, labels...)
-			ch <- prometheus.MustNewConstMetric(collector.freeCapacityBytes, prometheus.GaugeValue, freeCap, labels...)
-			ch <- prometheus.MustNewConstMetric(collector.availableCapacityBytes, prometheus.GaugeValue, availCap, labels...)
 		}
 	}
 }

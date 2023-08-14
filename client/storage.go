@@ -45,7 +45,7 @@ func (c *StorageService) GetLibrariesDetails() ([]LibraryDetail, error) {
 	}
 
 	for _, lib := range libs {
-		req, err := c.client.NewXmlRequest("GET", fmt.Sprintf("/webconsole/api/Library/%d", lib.Id), nil, nil)
+		req, err := c.client.NewRequest("GET", fmt.Sprintf("/webconsole/api/Library/%d", lib.Id), nil, nil)
 		if err != nil {
 			return nil, err
 		}

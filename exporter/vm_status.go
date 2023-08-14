@@ -63,23 +63,21 @@ func (collector *VmStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *VmStatusCollector) Collect(ch chan<- prometheus.Metric) {
-	if collector.commvaultClient.Status != nil && !collector.commvaultClient.Status.GetIsActive() && collector.commvaultClient.GetToken() != "" {
-		return
-	}
+	if collector.commvaultClient.IsActive() {
+		vmStatus, err := collector.commvaultClient.Vm.GetVmStatus(client.VmStatus_All)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[error] %v", err)
+			return
+		}
+		for _, vm := range *vmStatus {
+			labels := []string{vm.Name, vm.Plan.PlanName, vm.SubclientName, vm.StrGUID}
 
-	vmStatus, err := collector.commvaultClient.Vm.GetVmStatus(client.VmStatus_All)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[error] %v", err)
-		return
-	}
-	for _, vm := range *vmStatus {
-		labels := []string{vm.Name, vm.Plan.PlanName, vm.SubclientName, vm.StrGUID}
-
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupStartTime, prometheus.GaugeValue, float64(vm.BkpStartTime), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupEndTime, prometheus.GaugeValue, float64(vm.BkpEndTime), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupJobStatus, prometheus.GaugeValue, float64(vm.VmStatus), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.vmSize, prometheus.GaugeValue, float64(vm.VmSize), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.vmUsedSpace, prometheus.GaugeValue, float64(vm.VmUsedSpace), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.status, prometheus.GaugeValue, float64(vm.VmStatus), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupStartTime, prometheus.GaugeValue, float64(vm.BkpStartTime), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupEndTime, prometheus.GaugeValue, float64(vm.BkpEndTime), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupJobStatus, prometheus.GaugeValue, float64(vm.VmStatus), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.vmSize, prometheus.GaugeValue, float64(vm.VmSize), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.vmUsedSpace, prometheus.GaugeValue, float64(vm.VmUsedSpace), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.status, prometheus.GaugeValue, float64(vm.VmStatus), labels...)
+		}
 	}
 }

@@ -6,10 +6,8 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -130,24 +128,16 @@ func (c *CommvaultClient) NewRequest(method string, path string, params map[stri
 	return req, err
 }
 
-func (c *CommvaultClient) NewXmlRequest(method string, path string, params map[string]any, data *interface{}) (*http.Request, error) {
-
-	req, err := c.NewRequest(method, path, params, data)
-	req.Header.Add("Accept", "application/xml")
-
-	return req, err
-}
-
 func (c *CommvaultClient) Do(req *http.Request, v interface{}) (*http.Response, error) {
 
 	resp, err := c.httpclient.Do(req)
 	if err != nil {
-		fmt.Println("Do request failed")
+		fmt.Print("[error] Do request failed\n")
 		return nil, err
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("[error] %s", err)
+			fmt.Printf("[error] %s\n", err)
 		}
 	}()
 	err = readJsonResponse(resp, v)
@@ -155,23 +145,8 @@ func (c *CommvaultClient) Do(req *http.Request, v interface{}) (*http.Response, 
 	return resp, err
 }
 
-func (c *CommvaultClient) DoXml(req *http.Request, v interface{}) (*http.Response, error) {
-	resp, err := c.httpclient.Do(req)
-	if err != nil {
-		fmt.Println("Do request failed")
-		return nil, err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Printf("[error] %s", err)
-		}
-	}()
-
-	// if err := validateResponse(resp); err != nil {
-	// 	return resp, err
-	// }
-	err = readXmlResponse(resp, v)
-	return resp, err
+func (c *CommvaultClient) IsActive() bool {
+	return c.Status != nil && c.Status.GetIsActive() && c.GetToken() != ""
 }
 
 func readJsonResponse(r *http.Response, v interface{}) error {
@@ -183,7 +158,7 @@ func readJsonResponse(r *http.Response, v interface{}) error {
 	bodyString := string(bodyBytes)
 
 	if c := r.StatusCode; c < 200 || c > 299 {
-		return fmt.Errorf("[error] %s", bodyString)
+		return fmt.Errorf("%s", bodyString)
 	}
 
 	err := json.Unmarshal(bodyBytes, &v)
@@ -191,24 +166,6 @@ func readJsonResponse(r *http.Response, v interface{}) error {
 		return fmt.Errorf("failed to parse body to %T\n%v", v, err)
 	}
 	return nil
-}
-
-func readXmlResponse(r *http.Response, v interface{}) error {
-	if v == nil {
-		return fmt.Errorf("nil interface provided to decodeResponse")
-	}
-
-	bodyBytes, _ := ioutil.ReadAll(r.Body)
-	bodyString := string(bodyBytes)
-
-	if c := r.StatusCode; c < 200 || c > 299 {
-		return fmt.Errorf("[error] %s", bodyString)
-	}
-
-	fmt.Printf("== xml response ==\n%s", bodyString)
-
-	err := xml.Unmarshal([]byte(bodyString), &v)
-	return err
 }
 
 func (c *CommvaultClient) RenewToken() error {
@@ -305,12 +262,12 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 
 	defer func() {
 		if err := res.Body.Close(); err != nil {
-			fmt.Printf("[error] %s", err)
+			fmt.Printf("[error] %s\n", err)
 		}
 	}()
 
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		resp, err := ioutil.ReadAll(res.Body)
+		resp, err := io.ReadAll(res.Body)
 		if err != nil {
 			return "", err
 		}
@@ -330,7 +287,7 @@ func GetCommvaultToken(apiEndpoint string, username string, password string, ins
 		}
 		return "", fmt.Errorf("[error] failed to get a token")
 	} else {
-		resp, err := ioutil.ReadAll(res.Body)
+		resp, err := io.ReadAll(res.Body)
 		if err != nil {
 			return "", err
 		}
