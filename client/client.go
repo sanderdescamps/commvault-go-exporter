@@ -213,12 +213,19 @@ func (c *CommvaultClient) renewTokenExecutor(ctx context.Context) {
 				continue
 			}
 		case <-c.tokenManualTrigger:
-			fmt.Printf("[info] Start renew token (manual trigger)\n")
-			err := c.RenewToken()
-			if err != nil {
-				fmt.Printf("[error]: failed to renew token\n%+v\n", err)
-				continue
+			for i := 100; i > 0; i-- {
+				fmt.Printf("[info] Start renew token (manual trigger)\n")
+				err := c.RenewToken()
+				if err != nil {
+					fmt.Printf("[error]: failed to renew token\n%+v\n", err)
+					time.Sleep(3 * time.Second)
+					continue
+				} else {
+					fmt.Println("[info]: renew token successfull")
+					break
+				}
 			}
+
 		case <-c.tokenFlushTrigger:
 			c.FlushToken()
 			fmt.Printf("[info] Flush token\n")
