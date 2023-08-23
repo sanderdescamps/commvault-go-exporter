@@ -58,17 +58,21 @@ func (collector *DbStatusCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (collector *DbStatusCollector) Collect(ch chan<- prometheus.Metric) {
-	dbInstance, err := collector.commvaultClient.Database.GetDatabaseInstances()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[error] %v", err)
+	if collector.commvaultClient.IsActive() {
+		dbInstance, err := collector.commvaultClient.Database.GetDatabaseInstances()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[error] %v", err)
+			return
+		}
+		for _, dbi := range dbInstance {
+			labels := []string{dbi.Instance.ClientName, dbi.Instance.AppName, dbi.Instance.InstanceName, dbi.Instance.EntityInfo.CompanyName}
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupEndTime, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.EndTime.Time), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupStartTime, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.StartTime.Time), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.lastBackupJobStatus, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.Status), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.slaStatus, prometheus.GaugeValue, float64(dbi.SLAStatus), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.applicationSize, prometheus.GaugeValue, float64(dbi.ApplicationSize), labels...)
+			ch <- prometheus.MustNewConstMetric(collector.backupSize, prometheus.GaugeValue, float64(dbi.BackupSize), labels...)
+		}
 	}
-	for _, dbi := range dbInstance {
-		labels := []string{dbi.Instance.ClientName, dbi.Instance.AppName, dbi.Instance.InstanceName, dbi.Instance.EntityInfo.CompanyName}
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupEndTime, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.EndTime.Time), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupStartTime, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.StartTime.Time), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.lastBackupJobStatus, prometheus.GaugeValue, float64(dbi.LastBackupJobInfo.Status), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.slaStatus, prometheus.GaugeValue, float64(dbi.SLAStatus), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.applicationSize, prometheus.GaugeValue, float64(dbi.ApplicationSize), labels...)
-		ch <- prometheus.MustNewConstMetric(collector.backupSize, prometheus.GaugeValue, float64(dbi.BackupSize), labels...)
-	}
+
 }
